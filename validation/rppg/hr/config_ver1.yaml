@@ -1,0 +1,45 @@
+# ==============================================================================
+# rPPG Evaluation 設定ファイル (config.yaml)
+# ==============================================================================
+
+# パス設定
+paths:
+  dataset_dir: "rppg_datasets"                  # 評価対象データセットのディレクトリ
+  output_dir: "result"                          # 評価結果 (CSV・グラフ画像等) の出力先
+  model_path: "../make_ai/face_landmarker.task" # FaceLandmarker モデルファイルパス
+
+# 実行対象被験者の指定
+# null: 全被験者 (subject1, subject3, subject4, subject5, subject8) を自動実行
+# リスト指定例: ["subject1", "subject5"]
+subjects: null
+
+# FaceLandmarker & RGB 抽出設定
+extraction:
+  target_fps: 25.0                              # 動画からの抽出サンプリングレート (Hz)
+  region_size: 20                               # ランドマーク周辺のROI領域サイズ (px)
+  landmarks:
+    left_cheek: [330, 347, 280, 266, 425]       # 左頬ランドマーク座標インデックス
+    right_cheek: [101, 118, 50, 36, 198]        # 右頬ランドマーク座標インデックス
+
+# preprocess 準拠 rPPG 前処理設定
+rppg:
+  fs: 50.0                                      # 脈波解析サンプリングレート (Hz)
+  input_fps: 25                                 # 外れ値除去用基準フレームレート
+  pos:
+    window_sec: 1.6                             # POS アルゴリズムのスライディング窓長 (秒)
+  filter:
+    lowcut: 0.75                                # バンドパス遮断周波数 下限 (0.75Hz ≒ 45 BPM)
+    highcut: 2.5                                # バンドパス遮断周波数 上限 (2.5Hz ≒ 150 BPM)
+    order: 2                                    # バターワースフィルタ次数
+  hr_extraction:
+    roi_cols:
+      both: "bvp_clean_both"
+      left: "bvp_clean_left"
+      right: "bvp_clean_right"
+
+# グラフ・可視化設定
+visualization:
+  save_plots: true                              # 比較グラフ画像を保存するかどうか
+  combined_plot_filename: "hr_comparison.png"   # 全被験者統合プロットの保存ファイル名
+  save_individual_plots: true                   # 被験者ごとの個別グラフ画像も保存するか
+  dpi: 300                                      # 保存画像の解像度 (DPI)

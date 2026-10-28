@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "http://localhost:3000",
+      "https://datacollect-test-ver1-ajnbaindiavndvanvogepw3472184172anviava.vercel.app"
+    ],
+    "method": ["GET", "POST", "PUT", "HEAD"],
+    "responseHeader": ["Content-Type", "x-goog-meta-custom-header"],
+    "maxAgeSeconds": 3600
+  }
+]

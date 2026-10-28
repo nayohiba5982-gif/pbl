@@ -1,0 +1,55 @@
+# ==============================================================================
+# rPPG HRV Evaluation 設定ファイル (hrv/config.yaml)
+# ==============================================================================
+
+# パス設定 (hrv ディレクトリ基準)
+paths:
+  dataset_dir: "../datasets"                    # 評価対象データセットのディレクトリ (validation/rppg/datasets)
+  output_dir: "result"                          # 評価結果の出力先 (hrv/result に保存されます)
+  model_path: "../../../make_ai/face_landmarker.task"      # FaceLandmarker モデルファイルパス
+
+# 実行対象被験者の指定
+# null: 全被験者 (subject1, subject3, subject4, subject5, subject8) を自動実行
+# リスト指定例: ["subject1", "subject5"]
+subjects: null
+
+# FaceLandmarker & RGB 抽出設定
+extraction:
+  target_fps: 30.0                              # 動画からの抽出サンプリングレート (Hz)
+  region_size: 20                               # ランドマーク周辺のROI領域サイズ (px)
+  landmarks:
+    left_cheek: [330, 347, 280, 266, 425]       # 左頬ランドマーク座標インデックス
+    right_cheek: [101, 118, 50, 36, 198]        # 右頬ランドマーク座標インデックス
+
+# preprocess 準拠 rPPG 前処理設定 (Step 3〜6)
+rppg:
+  fs: 50.0                                      # 脈波解析サンプリングレート (Hz)
+  input_fps: 25                                 # 外れ値除去用基準フレームレート
+  pos:
+    window_sec: 1.6                             # POS アルゴリズムのスライディング窓長 (秒)
+  filter:
+    lowcut: 0.75                                # バンドパス遮断周波数 下限 (0.75Hz ≒ 45 BPM)
+    highcut: 2.5                                # バンドパス遮断周波数 上限 (2.5Hz ≒ 150 BPM)
+    order: 2                                    # バターワースフィルタ次数
+  hr_extraction:
+    roi_cols:
+      both: "bvp_clean_both"
+      left: "bvp_clean_left"
+      right: "bvp_clean_right"
+
+# 【HRV 特徴量専用ライン】設定
+# 放物線補間 ➔ IBI外れ値補正 (Kubios) ➔ スライディング窓 (45〜60秒) ➔ 4大指標算出 (rmssd, sdnn, sd2/sd1, mean_pp)
+hrv:
+  enabled: true                                 # HRV 4大指標の算出を行うか (true/false)
+  window_sec: 45.0                              # スライディング窓長 (秒, 45〜60秒推奨)
+  stride_sec: 1.0                               # スライディング窓のストライド幅 (秒)
+  min_peaks: 10                                 # 窓内の最小拍数
+  fixpeaks_method: "Kubios"                     # IBI外れ値補正手法 (Kubios)
+  save_csv: true                                # 各被験者のHRV特徴量テーブルを保存するか (hrv_{subject}.csv)
+
+# グラフ・可視化設定
+visualization:
+  save_plots: true                              # HRV推移・ポアンカレグラフ画像を保存するかどうか
+  combined_plot_filename: "hrv_comparison.png"  # 全被験者統合プロットの保存ファイル名
+  save_individual_plots: true                   # 被験者ごとの個別グラフ画像も保存するか
+  dpi: 300                                      # 保存画像の解像度 (DPI)

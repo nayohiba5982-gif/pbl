@@ -1,0 +1,186 @@
+# ==============================================================================
+# 1. 秘密情報・APIキー・認証情報・環境変数
+# ==============================================================================
+.env
+.env.*
+*.env
+*firebase*.json
+*serviceAccount*.json
+*service_account*.json
+*credentials*.json
+*credential*.json
+*secret*.json
+*token*.json
+*auth*.json
+*api_key*.json
+*apikey*.json
+client_secret*.json
+oauth*.json
+rppg-*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+.antigravityignore
+
+# ==============================================================================
+# 2. 実験データ・収集データ・大容量データ（ローカル保存・プライバシー保護）
+# ==============================================================================
+# データディレクトリ
+**/data/
+*dataset*/
+rppg_datasets/
+**/json_output/
+validation/**/datasets/
+validation/**/data/
+preprocess/data/
+learning/data/
+**/raw_data/
+**/processed_data/
+
+# データテーブル・配列・バイナリデータ
+*.csv
+*.tsv
+*.npy
+*.npz
+*.parquet
+*.feather
+
+# アーカイブ・圧縮ファイル
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.gz
+*.json.gz
+
+# 大容量メディアファイル（動画・音声）
+*.webm
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.m4a
+
+# ==============================================================================
+# 3. 機械学習モデル・重み・学習成果物バイナリ
+# ==============================================================================
+# モデルファイル拡張子
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.onnx
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.safetensors
+*.cbm
+*.task
+*.xgb
+*.lgb
+
+# モデル設定/出力（LightGBM / XGBoost等のテキスト・JSON出力）
+*model*.txt
+*model*.json
+
+# モデル保存・成果物ディレクトリ
+learning/models/
+**/checkpoints/
+**/weights/
+**/models_output/
+
+# ソースコード内の models ディレクトリは除外しない（Pythonスクリプトを保護）
+!learning/downstream_task/base_model/models/*.py
+!learning/downstream_task/meta_model/models/*.py
+!learning/downstream_task/models/*.py
+
+# ==============================================================================
+# 4. 出力ファイル・実験結果・生成レポート・プロット・ログ
+# ==============================================================================
+# 出力・ログ・トラッキングディレクトリ
+**/outputs/
+**/output/
+**/*result*/
+**/*results/
+**/catboost_info/
+**/wandb/
+**/runs/
+**/lightning_logs/
+**/reports/
+**/figures/
+**/plots/
+eda/**/reports/
+validation/**/result*/
+
+# 生成レポート・サマリーMarkdown
+report.md
+*_report.md
+*_comparison.md
+
+# 生成プロット・画像（機械学習・評価グラフ）
+*plots*.png
+*plot*.png
+*comparison*.png
+*curves*.png
+*metrics*.png
+*importance*.png
+*scatter*.png
+*residuals*.png
+*confusion_matrices*.png
+*actual_vs_predicted*.png
+auth_qr.png
+make_qr.py
+
+# ログファイル
+*.log
+*.log.*
+*.log_*
+
+# ==============================================================================
+# 5. Python / 仮想環境 / キャッシュ
+# ==============================================================================
+*venv*/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ipynb_checkpoints/
+.mypy_cache/
+.ruff_cache/
+
+# ==============================================================================
+# 6. Node.js / Next.js / ビルド成果物
+# ==============================================================================
+node_modules/
+.next/
+.vercel/
+out/
+build/
+dist/
+coverage/
+.pnp*
+*.tsbuildinfo
+next-env.d.ts
+tetris/unity/
+tetris/*
+others/*
+
+# ==============================================================================
+# 7. OS・エディタ固有ファイル
+# ==============================================================================
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+.vscode/
+.idea/
+

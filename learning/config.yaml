@@ -1,0 +1,293 @@
+# ==============================================================================
+# 学習パイプライン共通設定 (Learning Pipeline Configuration)
+# ==============================================================================
+
+# パス設定
+paths:
+  # スライディングウィンドウ入力データディレクトリ (preprocessの出力)
+  input_data_root: "../preprocess/data/windowed"
+  # 学習成果物・中間データ保存先ディレクトリ (learning/data)
+  data_root: "data"
+  # モデル保存先ディレクトリ
+  model_dir: "models"
+  # TensorBoard ログ保存先ディレクトリ
+  runs_dir: "runs"
+
+dataset:
+  # ウィンドウサイズ（5s, 10s, 15s など）
+  window_size: "10s"
+  # GroupShuffleSplit によるデータ分割設定
+  group_col: "username"
+  test_size: 0.15
+  val_size: 0.1764       # train_val からの検証データ割合 (0.85 * 0.1764 ≒ 0.15)
+  random_state: 42
+
+# 表現学習 (TS2Vec) 潜在空間設定 (Latent Space Configuration)
+# 潜在空間の次元数は visual, vital それぞれで 32次元 (結合時: 64次元)
+ts2vec:
+  visual_dim: 32         # 視覚ストリーム潜在次元数
+  vital_dim: 32          # 生体ストリーム潜在次元数
+  latent_dims: 64        # 視覚 + 生体 結合潜在次元数 (32 + 32 = 64)
+  output_dims: 32        # 単一ストリームあたりの出力次元数
+
+# Step 1: 前段タスク設定 (PLS エルボー分析 ➔ PLS 学習・潜在特徴量抽出 ➔ GMM 直前の被験者別 Zスコア標準化)
+previous_task:
+  # 実行対象ウィンドウサイズ (単一指定: "15s" または 複数指定: ["5s", "10s", "15s"])
+  selected_window:
+    - "15s"
+  # PLS 成分数 (潜在次元数) の設定 (人間側で自由に変更可能)
+  n_components_visual: 3         # 視覚ストリーム PLS 成分数 (デフォルト: 3)
+  n_components_vital: 3          # 生体ストリーム PLS 成分数 (デフォルト: 3)
+  # エルボー分析で評価する候補成分数リスト
+  candidate_components: [1, 2, 3, 4, 5, 6]
+  # GMM 入力直前の被験者別 (Subject-wise) Zスコア標準化設定
+  apply_subject_norm: true
+  # グラフ・プロット (エルボー曲線・標準化検証図) の保存
+  save_plots: true
+
+# GMM クラスタリング設定 (Clustering & Cluster Number Decision)
+clustering:
+  # クラスタ数（null の場合は decision_class_number で自動決定、整数指定時はその値を使用）
+  n_clusters: null
+
+  # クラスタ数自動決定の設定 (decision_class_number)
+  decision:
+    k_min: 2
+    k_max: 10
+    covariance_types:
+      - "full"
+      - "tied"
+      - "diag"
+      - "spherical"
+    criterion: "bic"       # 最適クラスタ選択基準: "bic" (最小), "aic" (最小), "silhouette" (最大)
+    save_plot: true
+    plot_filename: "cluster_selection_metrics.png"
+    csv_filename: "cluster_selection_metrics.csv"
+
+  # GMM パラメータ
+  gmm:
+    covariance_type: "full"  # "full", "tied", "diag", "spherical"
+    random_state: 42
+    max_iter: 100
+    n_init: 5
+
+  # 結果の保存と可視化
+  save_scatter_plot: true
+  scatter_filename: "cluster_scatter_pca.png"
+
+# GMM クラスタの特徴量集計・分析設定 (Cluster Feature Analysis)
+cluster_analysis:
+  # 特徴量列名リスト (X_windows.npy のチャネル順)
+  feature_cols:
+    - "ear_ratio"
+    - "head_pitch_diff"
+    - "head_yaw_diff"
+    - "head_roll_diff"
+    - "gaze_v_deg_diff"
+    - "gaze_h_deg_diff"
+    - "bvp_selected"
+    - "bpm"
+
+  # 生体指標のカラム設定
+  metrics:
+    bpm_col: "bpm"
+    ear_col: "ear_ratio"
+    head_pose_cols:
+      - "head_pitch_diff"
+      - "head_yaw_diff"
+      - "head_roll_diff"
+    gaze_cols:
+      - "gaze_v_deg_diff"
+      - "gaze_h_deg_diff"
+
+  # 出力ファイル設定
+  save_plot: true
+  plot_filename: "cluster_physical_interpretation.png"
+  report_filename: "cluster_analysis_report.md"
+  profiles_filename: "cluster_profiles.csv"
+
+# サンプルごとの確率ラベル（期待値ソフトターゲット y ∈ [0, 1]）設定 (Soft Labeling)
+soft_labeling:
+  # 各クラスタに対する重み w_k (例: k=3 の場合 [1.0, 0.5, 0.0])
+  # null の場合はクラスタ数 K に応じて自動等間隔割り当て (例: k=2なら [1.0, 0.0])
+  weights: null
+  target_col: "y_soft"             # メタデータに追加する列名
+  save_npy: true                   # y_soft_{split}.npy および y_{split}.npy として保存
+  save_csv: true                   # meta_{split}_clustered.csv に列追加して保存
+  save_plot: true                  # ソフトラベル分布プロットの保存
+  plot_filename: "soft_label_distribution.png"
+
+# 明示的物理特徴量設定 (Explicit Physical Features: 瞬目・頭部姿勢・視線・心拍 統計量 20d)
+features:
+  explicit_stats_dim: 20           # 時系列物理統計量次元数
+  mode: "standard_20d"             # 物理統計量集約モード
+
+# 下流タスク回帰モデル設定 (Step 7: Base Model [Visual / Vital] ➔ Meta Model 2段階構成)
+downstream_task:
+  # デフォルト実行ステージ ("all", "base_model", "meta_model")
+  default_stage: "all"
+
+  # 評価モード設定 (LOSO-CV 完全データリークフリー)
+  eval_mode: "loso"
+  random_state: 42
+
+  # 特徴量設定 (true: PLS潜在特徴量 + 明示的物理統計量 / false: PLS潜在特徴量のみ)
+  use_explicit_features: true
+
+  # 不均衡補正ペナルティ重み (少数派クラス/非集中に対する重み倍率)
+  imbalance_penalty: 4.0
+
+  # 出力・可視化・モデル保存設定
+  save_plots: true
+  save_models: true
+
+  # ----------------------------------------------------------------------------
+  # Step 7-1: Base Model 設定 (Visual / Vital 各モダリティで個別に学習・評価・保存)
+  # ----------------------------------------------------------------------------
+  base_model:
+    # 学習対象のモダリティ
+    modalities:
+      - "visual"
+      - "vital"
+
+    # 学習対象のベース回帰モデル一覧 (全て回帰 + Early Stopping 適用)
+    models:
+      - "random_forest"
+      - "xgboost"
+      - "lightgbm"
+      - "catboost"
+      - "adaboost"
+
+    # Early Stopping 設定 (Fold内 Train データから検証データを分割して重み付きRMSEを監視)
+    early_stopping:
+      enabled: true
+      stopping_rounds: 30
+      val_ratio: 0.2          # Fold内 Train からの検証データ分割割合
+      group_split: true       # true: 被験者単位 (GroupShuffleSplit) で検証データを分割
+
+    # 各ベースモデル (回帰) のハイパーパラメータ設定
+    random_forest_params:
+      n_estimators: 200       # 最大決定木本数 (warm_start による Early Stopping で最適本数に調整)
+      step_estimators: 5      # 1ステップあたりに追加する決定木本数
+      max_depth: 6
+      min_samples_split: 5
+      min_samples_leaf: 2
+      max_features: "sqrt"
+      random_state: 42
+      n_jobs: 1
+
+    xgboost_params:
+      n_estimators: 300       # 最大イテレーション数 (Early Stopping 適用)
+      learning_rate: 0.03
+      max_depth: 4
+      subsample: 0.8
+      colsample_bytree: 0.8
+      reg_alpha: 1.0
+      reg_lambda: 5.0
+      objective: "reg:squarederror"
+      eval_metric: "rmse"
+      random_state: 42
+      tree_method: "hist"
+      verbosity: 0
+      n_jobs: 1
+
+    lightgbm_params:
+      n_estimators: 300       # 最大イテレーション数 (Early Stopping 適用)
+      learning_rate: 0.03
+      num_leaves: 7
+      max_depth: 3
+      min_child_samples: 25
+      subsample: 0.8
+      colsample_bytree: 0.8
+      reg_alpha: 1.0
+      reg_lambda: 5.0
+      objective: "regression"
+      metric: "rmse"
+      random_state: 42
+      n_jobs: 1
+      verbose: -1
+
+    catboost_params:
+      iterations: 300         # 最大イテレーション数 (Early Stopping 適用)
+      learning_rate: 0.03
+      depth: 4
+      l2_leaf_reg: 3.0
+      loss_function: "RMSE"
+      eval_metric: "RMSE"
+      random_seed: 42
+      verbose: false
+      thread_count: 1
+
+    adaboost_params:
+      n_estimators: 200       # 最大ステージ数 (staged_predict による Early Stopping 適用)
+      learning_rate: 0.05
+      loss: "linear"          # "linear", "square", "exponential"
+      max_depth: 3            # ベース決定木 (DecisionTreeRegressor) の最大深さ
+      min_samples_leaf: 5     # ベース決定木の最小葉サンプル数
+      random_state: 42
+
+  # ----------------------------------------------------------------------------
+  # Step 7-2: Meta Model 設定 (Visual + Vital 予測値を統合するメタ回帰モデル)
+  # ----------------------------------------------------------------------------
+  meta_model:
+    # ★ Visual / Vital それぞれで採用するベースモデルをここで指定 ★
+    # 指定可能: "random_forest", "xgboost", "lightgbm", "catboost", "adaboost"
+    selected_base_models:
+      visual: "lightgbm"
+      vital: "lightgbm"
+
+    # 作成・評価するメタモデル一覧
+    models:
+      - "logistic_regression"
+      - "ridge"
+      - "lasso"
+      - "elastic_net"
+
+    # 最終推論結果 (final_prediction) として採用するデフォルトのメタモデル
+    default_final_model: "logistic_regression"
+
+    # 各メタモデルのハイパーパラメータ設定
+    logistic_regression_params:
+      C: 1.0
+      max_iter: 1000
+      solver: "lbfgs"
+      random_state: 42
+
+    ridge_params:
+      alpha: 1.0
+      solver: "auto"
+      random_state: 42
+
+    lasso_params:
+      alpha: 0.01
+      max_iter: 2000
+      tol: 0.0001
+      random_state: 42
+
+    elastic_net_params:
+      alpha: 0.01
+      l1_ratio: 0.5
+      max_iter: 2000
+      tol: 0.0001
+      random_state: 42
+
+# LOSO-CV (Leave-One-Subject-Out Cross-Validation) 設定
+loso_cv:
+  n_vis_pls: 3                     # 視覚ストリーム PLS 次元数 (32d -> 3d)
+  n_bio_pls: 3                     # 生体ストリーム PLS 次元数 (32d -> 3d)
+  total_pls_dims: 6                # 結合 PLS 次元数 (3 + 3 = 6)
+  apply_subject_norm: true         # 被験者別 (Subject-wise) Zスコア標準化の適用
+  covariance_type: "full"          # Fold 内 GMM の共分散タイプ
+  weights: [1.0, 0.0]              # 集中(1.0) / リラックス(0.0) ソフトラベル重み
+
+# ロギング設定
+logging:
+  # Weights & Biases (W&B)
+  wandb:
+    enabled: true
+    project: "concentration-estimation"
+    name_prefix: "concentration"
+
+  # TensorBoard
+  tensorboard:
+    enabled: true

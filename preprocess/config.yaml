@@ -1,0 +1,207 @@
+﻿# ==============================================================================
+# Firebase & データ収集設定
+# ==============================================================================
+firebase:
+  key_path: "rppg-f48b2-921587ae763a.json"
+  storage_bucket: "rppg-f48b2.firebasestorage.app"
+  storage_prefix: "user_signals"
+  work_dir: "data"
+  output_dir: "collect/json_output"
+  csv_output_dir: "data/raw"
+  zip_output: "."
+  delete_gz_after_extract: false
+
+# ==============================================================================
+# 中間ファイル管理設定
+# ==============================================================================
+# true の場合、パイプライン処理が成功した際に不要となった中間生成物（lm_*, rgb_*, rppg_* 等）を自動削除し、
+# 最終成果物（data/features, data/windowed, および data/raw）のみを残します。
+# 途中の工程でエラー等が発生した場合は、削除を行わず成功した工程までのファイルを保持します。
+cleanup_intermediates: true
+
+# ==============================================================================
+# パイプラインディレクトリ構成（データ処理フロー順）
+# ==============================================================================
+paths:
+  data_root: "data"
+  raw_dir: "data/raw"
+  calib_master_path: "data/raw/calibration_master.csv"
+  
+  # Step 2: 切り出し (LM / RGB)
+  lm_dir: "data/lm"
+  rgb_dir: "data/rgb"
+  
+  # Step 3: 前処理・外れ値除去 (Cleaned)
+  lm_cleaned_dir: "data/lm_cleaned"
+  rgb_cleaned_dir: "data/rgb_cleaned"
+  
+  # Step 4: リサンプリング (50Hz)
+  lm_resampled_dir: "data/lm_resampled"
+  rgb_resampled_dir: "data/rgb_resampled"
+  
+  # Step 5 (LM): フィルタリング (ローパスフィルタ)
+  lm_filtered_dir: "data/lm_filtered"
+
+  # Step 6 (LM): トレンド除去
+  lm_detrended_dir: "data/lm_detrended"
+
+  # Step 7 (LM): 特徴量計算 (EAR, Head Pose, Eye Rotation等)
+  lm_features_dir: "data/lm_features"
+
+  # Step 8 (LM): キャリブレーション正規化 (ランドマーク最終成果物)
+  lm_calibrated_dir: "data/lm_calibrated"
+  lm_normalized_dir: "data/lm_calibrated"
+  
+  # Step 5 (RGB): POS アルゴリズム脈波抽出
+  rppg_pos_extracted_dir: "data/rppg_pos_extracted"
+
+  # Step 6 (RGB): バンドパスフィルタリング
+  rppg_filtered_dir: "data/rppg_filtered"
+
+  # Step 7 (RGB): 生体指標算出 (BPM, Peaks, SNR)
+  rppg_hr_extracted_dir: "data/rppg_hr_extracted"
+  
+  # Step 7 (RGB - HRV専用ライン): HRV 4大指標特徴量テーブル
+  rppg_hrv_dir: "data/rppg_hrv"
+  
+  # Step 7.5 (RGB): 生体指標差分キャリブレーション出力 (10秒ウィンドウ相対特徴)
+  rppg_calibrated_dir: "data/rppg_calibrated"
+  
+  # 最終特徴量出力 (LM特徴量 + RGB生体指標をマージ)
+  output_dir: "data/features"
+
+# ==============================================================================
+# ランドマーク (LM) & 顔姿勢・視線パラメータ
+# ==============================================================================
+landmarks:
+  r_eye: 11.7                 # 平均眼球半径 (mm)
+  timestamp_col: "time"       # タイムスタンプカラム名
+  default_fps: 50.0           # リサンプリング後FPS
+
+  # キャリブレーション設定 (Step 8: ランドマーク最終工程)
+  calibration:
+    ratio_targets:
+      ear_avg: "ear_calib"
+    diff_targets:
+      head_pitch: "head_pitch_calib"
+      head_yaw: "head_yaw_calib"
+      head_roll: "head_roll_calib"
+      gaze_v_deg: "gaze_pitch_calib"
+      gaze_h_deg: "gaze_yaw_calib"
+
+# ==============================================================================
+# 脈波 (rPPG) パラメータ
+# ==============================================================================
+rppg:
+  fs: 50.0                    # サンプリングレート (Hz)
+  
+  # POS アルゴリズム設定 (Step 5)
+  pos:
+    window_sec: 1.6           # スライディングウィンドウ長 (秒)
+    roi_regions:              # 抽出対象のROIプレフィックス
+      both: "rppg_bothCheeks"
+      left: "rppg_leftCheek"
+      right: "rppg_rightCheek"
+    roi_prefix: "rppg_bothCheeks"
+
+  # バンドパスフィルタ設定 (Butterworth, Step 6)
+  filter:
+    lowcut: 0.75              # 0.75Hz ≒ 45 BPM
+    highcut: 2.5              # 2.5Hz ≒ 150 BPM
+    order: 2
+
+  # 心拍数 (HR) 抽出設定 (Step 7)
+  hr_extraction:
+    roi_cols:
+      both: "bvp_clean_both"
+      left: "bvp_clean_left"
+      right: "bvp_clean_right"
+
+# ==============================================================================
+# 【HR 推定ライン】心拍数 (BPM) 移動平均設定
+# ==============================================================================
+# 本来のpreprocessによるBPM出力後に指定秒数の移動平均を適用して平滑化します
+moving_average:
+  enabled: true                 # 移動平均を適用するかどうか (true/false)
+  window_sec: 5.0               # 移動平均の窓長 (秒, デフォルト: 5.0秒)
+  center: false                 # 窓の配置 (false: 過去窓 [因果的・リアルタイム], true: 中心窓)
+
+# ==============================================================================
+# 【HRV 特徴量専用ライン】設定
+# ==============================================================================
+# 放物線補間 ➔ IBI外れ値補正 (Kubios法) ➔ スライディング窓 (45〜60秒) ➔ 4大指標算出 (rmssd, sdnn, sd2/sd1, mean_pp)
+hrv:
+  enabled: false                 # HRV 4大指標の算出を行うか (true/false)
+  window_sec: 45.0              # スライディング窓長 (秒, 45〜60秒推奨)
+  stride_sec: 1.0               # スライディング窓のストライド幅 (秒)
+  save_csv: false               # HRV特徴量テーブルをCSV保存するか (hrv_{stem}.csv)
+
+# ==============================================================================
+# 【生体指標キャリブレーション】10秒ウィンドウ内完結 相対特徴・差分キャリブレーション
+# ==============================================================================
+# 外部ベースラインを撤廃し、10秒ウィンドウ内で完結するベースライン（局所平均等）を
+# 基準値 (base) とした差分 (x - base) を算出します
+rppg_calibration:
+  enabled: true                 # 差分キャリブレーションを有効化するか (true/false)
+  window_sec: 10.0              # 相対特徴算出ウィンドウ長 (秒, デフォルト: 10.0秒)
+  target_cols:                  # 対象の生体指標カラム
+    - "bpm"
+    - "bvp_selected"
+  baseline_method: "mean"       # ベースライン算出法 ('mean', 'median', 'initial')
+  center: false                 # 過去窓 (false: 因果的・リアルタイム) / 中心窓 (true)
+  min_periods_ratio: 0.3        # 窓内に最低限必要なデータ率
+
+# ==============================================================================
+# スライディングウィンドウ設定
+# ==============================================================================
+windowing:
+  window_secs: [5, 10, 15]    # 検証対象のウィンドウ長（秒）
+  stride_sec: 1.0             # スライド幅（秒）
+  target_fs: 50.0             # サンプリングレート (Hz)
+  max_nan_ratio: 0.1          # 許容する最大NaN割合
+  
+  # ラベルごとの除外（トリミング）設定（秒）
+  # - label 1: 最初の15秒間、最後の4秒間を除外
+  # - label 0: 最初の15秒間を除外
+  trim_margins:
+    0:
+      start_sec: 15.0
+      end_sec: 0.0
+    1:
+      start_sec: 15.0
+      end_sec: 4.0
+
+  # 特徴量グループの定義（各特徴量別スライディングウィンドウ用）
+  feature_groups:
+    visual:                     # 視覚的特徴量 (顔ランドマーク・頭部姿勢・視線: 計6次元)
+      - "ear_ratio"
+      - "head_pitch_diff"
+      - "head_yaw_diff"
+      - "head_roll_diff"
+      - "gaze_v_deg_diff"
+      - "gaze_h_deg_diff"
+    vital:                      # 生体的特徴量 (rPPG脈波・心拍変化: 計2次元)
+      - "bvp_selected"
+      - "bpm_diff"
+    combined:                   # 統合特徴量 (全8次元)
+      - "ear_ratio"
+      - "head_pitch_diff"
+      - "head_yaw_diff"
+      - "head_roll_diff"
+      - "gaze_v_deg_diff"
+      - "gaze_h_deg_diff"
+      - "bvp_selected"
+      - "bpm_diff"
+
+  # TS2Vec / 集約に入力する特徴量カラム一覧 (ゼロ平均化系列)
+  feature_cols:
+    - "ear_ratio"
+    - "head_pitch_diff"
+    - "head_yaw_diff"
+    - "head_roll_diff"
+    - "gaze_v_deg_diff"
+    - "gaze_h_deg_diff"
+    - "bvp_selected"
+    - "bpm_diff"
+    
+  output_dir: "data/windowed"

@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Virtual Environments
+.venv
+venv
+**/venv/
+**/.venv/
+
+# Python Cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.ruff_cache
+
+# Large Data & Archives
+*.zip
+*.tar.gz
+preprocess/data/raw/
+preprocess/data/features/
+learning/data/
+learning/models/
+
+# Development directories (not deployed to production Cloud Run)
+eda/
+validation/
+tetris/
+data_collect/
+others/
+
+# Node.js / Next.js
+node_modules
+.next
+.vercel
+
+# Logs & IDE
+*.log
+.vscode
+.idea
