@@ -5,7 +5,7 @@ import pandas as pd
 from config_loader import log
 
 
-# デフォルトの特徴量カラム順（preprocess パイプライン準拠）
+# デフォルトの特徴量カラム順（preprocess パイプライン準拠: 12ch）
 DEFAULT_FEATURE_COLS = [
     "ear_ratio",
     "head_pitch_diff",
@@ -15,6 +15,10 @@ DEFAULT_FEATURE_COLS = [
     "gaze_h_deg_diff",
     "bvp_selected",
     "bpm",
+    "rmssd",
+    "sdnn",
+    "sd2_sd1",
+    "mean_pp",
 ]
 
 
@@ -29,15 +33,15 @@ def compute_physical_metrics_from_windows(
 ) -> pd.DataFrame:
     """
     各ウィンドウ時系列配列 X [N, T, C] から、
-    心拍数 (BPM)、瞬目比率 (EAR)、頭部姿勢の動き (分散)、視線の動き (分散) を算出します。
+    心拍数 (BPM)、瞬目比率 (EAR)、頭部姿勢の動き (分散)、視線の動き (分散)、HRV指標を算出します。
     """
     if head_pose_cols is None:
         head_pose_cols = ["head_pitch_diff", "head_yaw_diff", "head_roll_diff"]
     if gaze_cols is None:
         gaze_cols = ["gaze_v_deg_diff", "gaze_h_deg_diff"]
 
-    col_to_idx = {col: i for i, col in enumerate(feature_cols)}
-    n_samples = X.shape[0]
+    n_samples, _, n_channels = X.shape
+    col_to_idx = {col: i for i, col in enumerate(feature_cols) if i < n_channels}
 
     metrics: dict[str, np.ndarray] = {}
 
@@ -86,6 +90,13 @@ def compute_physical_metrics_from_windows(
             metrics[f"{c}_var"] = np.nanvar(X[:, :, g_idx], axis=1)
     else:
         log.warning("視線カラムが見つかりません。")
+
+    # 5. HRV主要4指標 (rmssd, sdnn, sd2_sd1, mean_pp)
+    for hrv_col in ["rmssd", "sdnn", "sd2_sd1", "mean_pp"]:
+        if hrv_col in col_to_idx:
+            metrics[hrv_col] = np.nanmean(X[:, :, col_to_idx[hrv_col]], axis=1)
+        elif meta_df is not None and hrv_col in meta_df.columns and len(meta_df) == n_samples:
+            metrics[hrv_col] = meta_df[hrv_col].values.astype(np.float32)
 
     df_phys = pd.DataFrame(metrics, index=np.arange(n_samples))
     return df_phys

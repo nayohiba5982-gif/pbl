@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Firebase & データ収集設定
 # ==============================================================================
 firebase:
@@ -131,7 +131,7 @@ moving_average:
 # ==============================================================================
 # 放物線補間 ➔ IBI外れ値補正 (Kubios法) ➔ スライディング窓 (45〜60秒) ➔ 4大指標算出 (rmssd, sdnn, sd2/sd1, mean_pp)
 hrv:
-  enabled: false                 # HRV 4大指標の算出を行うか (true/false)
+  enabled: true                 # HRV 4大指標の算出を行うか (true/false)
   window_sec: 45.0              # スライディング窓長 (秒, 45〜60秒推奨)
   stride_sec: 1.0               # スライディング窓のストライド幅 (秒)
   save_csv: false               # HRV特徴量テーブルをCSV保存するか (hrv_{stem}.csv)
@@ -141,8 +141,9 @@ hrv:
 # ==============================================================================
 # 外部ベースラインを撤廃し、10秒ウィンドウ内で完結するベースライン（局所平均等）を
 # 基準値 (base) とした差分 (x - base) を算出します
+# ※ 生心拍数 (bpm) をそのまま保持し、下流タスクの被験者別Zスコア標準化に任せる設計のためデフォルト false
 rppg_calibration:
-  enabled: true                 # 差分キャリブレーションを有効化するか (true/false)
+  enabled: false                # 差分キャリブレーションを有効化するか (true/false)
   window_sec: 10.0              # 相対特徴算出ウィンドウ長 (秒, デフォルト: 10.0秒)
   target_cols:                  # 対象の生体指標カラム
     - "bpm"
@@ -180,20 +181,18 @@ windowing:
       - "head_roll_diff"
       - "gaze_v_deg_diff"
       - "gaze_h_deg_diff"
-    vital:                      # 生体的特徴量 (rPPG脈波・心拍変化: 計2次元)
-      - "bvp_selected"
-      - "bpm_diff"
-    combined:                   # 統合特徴量 (全8次元)
+    vital:                      # 生体的特徴量 (推定生心拍数のみ: 計1次元)
+      - "bpm"
+    combined:                   # 統合特徴量 (視覚6次元 + 心拍数1次元: 計7次元)
       - "ear_ratio"
       - "head_pitch_diff"
       - "head_yaw_diff"
       - "head_roll_diff"
       - "gaze_v_deg_diff"
       - "gaze_h_deg_diff"
-      - "bvp_selected"
-      - "bpm_diff"
+      - "bpm"
 
-  # TS2Vec / 集約に入力する特徴量カラム一覧 (ゼロ平均化系列)
+  # TS2Vec / 集約に入力する特徴量カラム一覧 (計7次元)
   feature_cols:
     - "ear_ratio"
     - "head_pitch_diff"
@@ -201,7 +200,6 @@ windowing:
     - "head_roll_diff"
     - "gaze_v_deg_diff"
     - "gaze_h_deg_diff"
-    - "bvp_selected"
-    - "bpm_diff"
+    - "bpm"
     
   output_dir: "data/windowed"

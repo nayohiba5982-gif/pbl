@@ -77,7 +77,7 @@ clustering:
 
 # GMM クラスタの特徴量集計・分析設定 (Cluster Feature Analysis)
 cluster_analysis:
-  # 特徴量列名リスト (X_windows.npy のチャネル順)
+  # 特徴量列名リスト (X_windows.npy のチャネル順: 12ch)
   feature_cols:
     - "ear_ratio"
     - "head_pitch_diff"
@@ -87,6 +87,10 @@ cluster_analysis:
     - "gaze_h_deg_diff"
     - "bvp_selected"
     - "bpm"
+    - "rmssd"
+    - "sdnn"
+    - "sd2_sd1"
+    - "mean_pp"
 
   # 生体指標のカラム設定
   metrics:
@@ -117,10 +121,10 @@ soft_labeling:
   save_plot: true                  # ソフトラベル分布プロットの保存
   plot_filename: "soft_label_distribution.png"
 
-# 明示的物理特徴量設定 (Explicit Physical Features: 瞬目・頭部姿勢・視線・心拍 統計量 20d)
+# 明示的物理特徴量設定 (Explicit Physical Features: 瞬目・頭部姿勢・視線・心拍・HRV 統計量 24d)
 features:
-  explicit_stats_dim: 20           # 時系列物理統計量次元数
-  mode: "standard_20d"             # 物理統計量集約モード
+  explicit_stats_dim: 24           # 時系列物理統計量次元数 (既存20d + HRV 4d)
+  mode: "standard_24d"             # 物理統計量集約モード
 
 # 下流タスク回帰モデル設定 (Step 7: Base Model [Visual / Vital] ➔ Meta Model 2段階構成)
 downstream_task:
@@ -270,6 +274,24 @@ downstream_task:
       max_iter: 2000
       tol: 0.0001
       random_state: 42
+
+  # ----------------------------------------------------------------------------
+  # Step 7-3: Threshold Decision 設定 (検証データを用いたリークフリー閾値最適化)
+  # ----------------------------------------------------------------------------
+  threshold_decision:
+    enabled: true                   # 閾値チューニングを有効化するか (true/false)
+    target_scope: "both"            # 適用対象スコープ ("meta_model", "base_model", "both")
+    default_criterion: "youden_j"   # 採用する最適化基準 ("youden_j", "f1_macro", "pr_balance")
+    compare_all_criteria: true      # 3大基準すべてを比較評価・レポート出力するか (true/false)
+    pr_balance_mode: "min_diff"     # PRバランス基準の計算方式 ("min_diff": |P-R|最小化, "product": P*R最大化)
+    search_range: [0.05, 0.95]      # 閾値探索範囲 [min_th, max_th]
+    search_step: 0.005              # グリッド探索の刻み幅 (0.005 -> 181点 + ROC/PR変化点)
+    use_exact_curve_points: true    # グリッドに加えて予測分布の分位点(ROC/PR変化点)も候補に含めるか
+    val_split_mode: "oof_non_test"  # Fold内の検証データ選択方式 ("oof_non_test": 非Test被験者OOF, "group_val": Fold内Val被験者分割)
+    val_ratio: 0.2                  # val_split_mode="group_val" 時の検証被験者割合
+    group_split: true               # 被験者単位 (GroupShuffleSplit) で検証データを分割するか
+    fallback_threshold: 0.5         # 単一クラス等で最適化不能な場合のデフォルト閾値
+    save_plots: true                # 閾値探索曲線・Before/After比較プロットを保存するか
 
 # LOSO-CV (Leave-One-Subject-Out Cross-Validation) 設定
 loso_cv:

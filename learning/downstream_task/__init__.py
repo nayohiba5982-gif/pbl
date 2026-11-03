@@ -3,7 +3,7 @@ learning/downstream_task パッケージ初期化モジュール
 Visual / Vital モダリティ別 Base Model (Early Stopping 対応 5種) & Meta Model (4種) 2段階構成
 """
 
-from .pipeline import DownstreamTaskPipeline, LOSORegressionPipeline, DEFAULT_DOWNSTREAM_MODELS
+from .pipeline import DownstreamTaskPipeline
 from .pls import DualStreamPLS
 from .data_loader import (
     load_embeddings_and_meta,
@@ -34,12 +34,16 @@ from .meta_model import (
     DEFAULT_META_MODELS,
     create_meta_model,
 )
+from .threshold_decision import (
+    ThresholdDecisionPipeline,
+    find_optimal_threshold,
+    run_loso_threshold_tuning,
+    SUPPORTED_CRITERIA,
+)
 from .main import main
 
 __all__ = [
     "DownstreamTaskPipeline",
-    "LOSORegressionPipeline",
-    "DEFAULT_DOWNSTREAM_MODELS",
     "DualStreamPLS",
     "load_embeddings_and_meta",
     "load_explicit_features",
@@ -60,5 +64,9 @@ __all__ = [
     "BaseMetaRegressor",
     "DEFAULT_META_MODELS",
     "create_meta_model",
+    "ThresholdDecisionPipeline",
+    "find_optimal_threshold",
+    "run_loso_threshold_tuning",
+    "SUPPORTED_CRITERIA",
     "main",
 ]

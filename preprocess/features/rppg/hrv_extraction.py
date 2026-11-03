@@ -14,11 +14,12 @@ import neurokit2 as nk
 import numpy as np
 import pandas as pd
 
-# 短時間窓における長期的フラクタル解析の警告を抑制
 try:
-  warnings.filterwarnings("ignore", category=nk.NeuroKitWarning)
-except Exception:
-  warnings.filterwarnings("ignore", category=UserWarning)
+  from neurokit2.hrv.hrv_nonlinear import _hrv_nonlinear_poincare
+except ImportError:
+  _hrv_nonlinear_poincare = None
+
+HRV_METRIC_COLS = ["rmssd", "sdnn", "sd2_sd1", "mean_pp"]
 
 
 def refine_peaks_parabolic(
@@ -155,25 +156,24 @@ def compute_hrv_4metrics(
     )
     sdnn = float(np.std(ibi_ms, ddof=1)) if len(ibi_ms) > 1 else np.nan
 
-  # 非線形解析 (SD2 / SD1)
+  # 非線形解析 (SD2 / SD1: Poincaré plot)
   sd2_sd1 = np.nan
-  try:
-    hrv_nl = nk.hrv_nonlinear(peaks_samples, sampling_rate=int(round(fs)))
-    if "HRV_SD1" in hrv_nl and "HRV_SD2" in hrv_nl:
-      sd1 = float(hrv_nl["HRV_SD1"].iloc[0])
-      sd2 = float(hrv_nl["HRV_SD2"].iloc[0])
-      if sd1 > 1e-6:
-        sd2_sd1 = sd2 / sd1
-  except Exception:
-    # 自前計算 (Poincaré plot)
-    ibi_ms = np.diff(peaks_sec) * 1000.0
-    if len(ibi_ms) >= 3:
-      x = ibi_ms[:-1]
-      y = ibi_ms[1:]
-      sd1 = np.sqrt(0.5 * np.var(x - y, ddof=1))
-      sd2 = np.sqrt(2 * np.var(ibi_ms, ddof=1) - 0.5 * np.var(x - y, ddof=1))
-      if sd1 > 1e-6:
+  ibi_ms = np.diff(peaks_sec) * 1000.0
+  if len(ibi_ms) >= 3:
+    try:
+      if _hrv_nonlinear_poincare is not None:
+        poincare_out = _hrv_nonlinear_poincare(ibi_ms, out={})
+        sd1 = float(poincare_out.get("SD1", np.nan))
+        sd2 = float(poincare_out.get("SD2", np.nan))
+      else:
+        rri_n = ibi_ms[:-1]
+        rri_plus = ibi_ms[1:]
+        sd1 = float(np.std((rri_n - rri_plus) / np.sqrt(2.0), ddof=1))
+        sd2 = float(np.std((rri_n + rri_plus) / np.sqrt(2.0), ddof=1))
+      if sd1 > 1e-6 and not np.isnan(sd2):
         sd2_sd1 = float(sd2 / sd1)
+    except Exception:
+      pass
 
   return {
       "mean_pp": round(mean_pp, 2) if not np.isnan(mean_pp) else np.nan,
@@ -288,3 +288,112 @@ def process_hrv_pipeline(
   )
 
   return df_hrv_windows, peaks_clean_samples, peaks_clean_sec
+
+
+def align_hrv_to_timeseries(
+    df: pd.DataFrame,
+    df_hrv_windows: Optional[pd.DataFrame],
+    fs: float = 50.0,
+    time_col: str = "time",
+) -> pd.DataFrame:
+  """スライディング窓で算出された HRV 4大指標テーブル (df_hrv_windows) を、
+  window_center を基準として元の 50Hz 時系列 DataFrame (df) にタイムスタンプ同期・補間して結合します。
+  """
+  df_out = df.copy()
+  n_rows = len(df_out)
+  if n_rows == 0:
+    for col in HRV_METRIC_COLS:
+      df_out[col] = np.array([], dtype=np.float32)
+    return df_out
+
+  if time_col in df_out.columns:
+    t_vals = df_out[time_col].values.astype(float)
+    rel_time = t_vals - t_vals[0]
+  else:
+    rel_time = np.arange(n_rows, dtype=float) / fs
+
+  if df_hrv_windows is None or df_hrv_windows.empty or "window_center" not in df_hrv_windows.columns:
+    for col in HRV_METRIC_COLS:
+      df_out[col] = 0.0
+    return df_out
+
+  centers = df_hrv_windows["window_center"].values.astype(float)
+
+  for col in HRV_METRIC_COLS:
+    if col not in df_hrv_windows.columns:
+      df_out[col] = 0.0
+      continue
+    s = (
+        pd.Series(df_hrv_windows[col].values, dtype=float)
+        .interpolate(method="linear")
+        .bfill()
+        .ffill()
+        .fillna(0.0)
+        .values
+    )
+    if len(centers) == 1:
+      df_out[col] = float(s[0])
+    else:
+      df_out[col] = np.interp(rel_time, centers, s).astype(np.float32)
+
+  return df_out
+
+
+def ensure_hrv_in_dataframe(
+    df: pd.DataFrame,
+    fs: float = 50.0,
+    window_sec: float = 45.0,
+    stride_sec: float = 1.0,
+    time_col: str = "time",
+) -> pd.DataFrame:
+  """DataFrame に HRV 4大指標 (rmssd, sdnn, sd2_sd1, mean_pp) が含まれていない場合、
+  bvp_selected および ppg_peaks から 45秒窓で算出してタイムスタンプ同期結合します。
+  """
+  if all(col in df.columns and not df[col].isna().all() for col in HRV_METRIC_COLS):
+    return df
+
+  if "bvp_selected" not in df.columns or len(df) == 0:
+    df_out = df.copy()
+    for col in HRV_METRIC_COLS:
+      if col not in df_out.columns:
+        df_out[col] = 0.0
+    return df_out
+
+  bvp_clean = (
+      pd.Series(df["bvp_selected"].values, dtype=float)
+      .interpolate(method="linear")
+      .bfill()
+      .ffill()
+      .fillna(0.0)
+      .values
+  )
+
+  rough_peak_indices = np.array([], dtype=int)
+  if "ppg_peaks" in df.columns:
+    rough_peak_indices = np.where(df["ppg_peaks"].values == 1)[0]
+
+  if len(rough_peak_indices) < 4:
+    try:
+      signals, info = nk.ppg_process(bvp_clean, sampling_rate=int(round(fs)))
+      if "PPG_Peaks" in info and len(info["PPG_Peaks"]) > 0:
+        rough_peak_indices = np.asarray(info["PPG_Peaks"], dtype=int)
+      else:
+        rough_peak_indices = np.where(signals["PPG_Peaks"].values == 1)[0]
+    except Exception:
+      rough_peak_indices = np.array([], dtype=int)
+
+  df_hrv_table = None
+  if len(rough_peak_indices) >= 4:
+    try:
+      df_hrv_table, _, _ = process_hrv_pipeline(
+          bvp_signal=bvp_clean,
+          rough_peak_indices=rough_peak_indices,
+          fs=fs,
+          window_sec=window_sec,
+          stride_sec=stride_sec,
+      )
+    except Exception:
+      df_hrv_table = None
+
+  return align_hrv_to_timeseries(df, df_hrv_table, fs=fs, time_col=time_col)
+

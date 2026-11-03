@@ -22,6 +22,7 @@ try:
     )
     from ..metrics import compute_fold_metrics, compute_oof_and_fold_summary
     from ..pls import DualStreamPLS
+    from ..threshold_decision.criteria import find_optimal_threshold
     from .models import create_base_model, normalize_base_model_name
     from .reporter import generate_visualizations, save_markdown_report
 except (ImportError, ValueError):
@@ -32,6 +33,7 @@ except (ImportError, ValueError):
     )
     from downstream_task.metrics import compute_fold_metrics, compute_oof_and_fold_summary
     from downstream_task.pls import DualStreamPLS
+    from downstream_task.threshold_decision.criteria import find_optimal_threshold
     from downstream_task.base_model.models import create_base_model, normalize_base_model_name
     from downstream_task.base_model.reporter import generate_visualizations, save_markdown_report
 
@@ -257,6 +259,7 @@ def run_single_base_model_loso(
     loso_cfg = cfg.get("loso_cv", {}) if cfg else {}
     bm_cfg = dt_cfg.get("base_model", {})
     es_cfg = bm_cfg.get("early_stopping", {})
+    td_cfg = dt_cfg.get("threshold_decision", {})
 
     seed = int(loso_cfg.get("random_state", dt_cfg.get("random_state", 42)))
     save_plots = bool(dt_cfg.get("save_plots", True))
@@ -264,12 +267,20 @@ def run_single_base_model_loso(
     es_enabled = bool(es_cfg.get("enabled", True))
     stop_rounds = int(es_cfg.get("stopping_rounds", dt_cfg.get("early_stopping_rounds", 30))) if es_enabled else 0
 
+    td_enabled = bool(td_cfg.get("enabled", True))
+    td_criterion = str(td_cfg.get("default_criterion", "youden_j"))
+    td_pr_mode = str(td_cfg.get("pr_balance_mode", "min_diff"))
+    td_range = list(td_cfg.get("search_range", [0.05, 0.95]))
+    td_step = float(td_cfg.get("search_step", 0.005))
+    td_fallback = float(td_cfg.get("fallback_threshold", 0.5))
+
     label_col = "label" if "label" in meta_df.columns else "label_mean"
     labels = meta_df[label_col].values.astype(float)
     n_samples = len(meta_df)
     n_folds = len(folds_data)
 
     oof_preds = np.full(n_samples, np.nan, dtype=np.float32)
+    oof_thresholds = np.full(n_samples, td_fallback, dtype=np.float32)
     fold_records: List[Dict] = []
     fold_models = []
     best_iterations: List[int] = []
@@ -321,6 +332,33 @@ def run_single_base_model_loso(
         y_pred_test = reg.predict(X_te).astype(np.float32)
         oof_preds[f_data.test_idx] = y_pred_test
 
+        # Fold 内の検証データ (Val) で最適カットオフ閾値 th* を決定（Testリーク完全防止）
+        th_fold = td_fallback
+        if td_enabled:
+            if X_val is not None and len(X_val) > 0:
+                y_val_true_hard = labels[f_data.train_idx[f_data.inner_val_mask]]
+                if len(np.unique((y_val_true_hard >= 0.5).astype(int))) >= 2:
+                    y_val_pred = reg.predict(X_val).astype(np.float32)
+                else:
+                    y_val_true_hard = labels[f_data.train_idx]
+                    y_val_pred = reg.predict(X_tr_all).astype(np.float32)
+            else:
+                y_val_true_hard = labels[f_data.train_idx]
+                y_val_pred = reg.predict(X_tr_all).astype(np.float32)
+
+            th_opt_res = find_optimal_threshold(
+                y_val_true=y_val_true_hard,
+                y_val_pred=y_val_pred,
+                criterion=td_criterion,
+                pr_balance_mode=td_pr_mode,
+                search_range=td_range,
+                search_step=td_step,
+                fallback_threshold=td_fallback,
+            )
+            th_fold = float(th_opt_res["best_threshold"])
+
+        oof_thresholds[f_data.test_idx] = th_fold
+
         best_it = reg.best_iteration_ or 0
         best_iterations.append(int(best_it))
         fold_models.append(reg)
@@ -336,7 +374,9 @@ def run_single_base_model_loso(
             test_user=f_data.test_user,
             y_true=f_data.y_true_test,
             y_pred=y_pred_test,
+            threshold=th_fold,
         )
+        f_metrics["optimal_threshold"] = round(th_fold, 4)
         f_metrics["best_iteration"] = int(best_it)
         fold_records.append(f_metrics)
 
@@ -345,7 +385,7 @@ def run_single_base_model_loso(
         r_str = f"{f_metrics['pearson_r']:.3f}" if pd.notna(f_metrics["pearson_r"]) else "N/A"
         log.info(
             f"  Fold [{f_data.fold:2d}/{n_folds:2d}] User: {f_data.test_user:<13} | "
-            f"BestIter: {best_it:3d} | MAE: {f_metrics['mae']:.4f} | r: {r_str} | "
+            f"BestIter: {best_it:3d} | th*: {th_fold:.3f} | MAE: {f_metrics['mae']:.4f} | r: {r_str} | "
             f"AUC: {auc_str} | PR-AUC: {pr_str}"
         )
 
@@ -357,6 +397,7 @@ def run_single_base_model_loso(
         y_true_all=labels,
         y_pred_all=oof_preds,
         fold_records=fold_records,
+        threshold=oof_thresholds if td_enabled else td_fallback,
     )
     fold_df = eval_res["fold_df"]
     stats_dict = eval_res["stats_dict"]

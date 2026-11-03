@@ -146,9 +146,9 @@ class RGBPipeline:
         ma_window_sec = float(ma_cfg.get("window_sec", 5.0))
         ma_center = ma_cfg.get("center", False)
 
-        # HRV 設定 (パイプライン除外設定: デフォルト False)
+        # HRV 設定 (デフォルト True: 45秒スライディング窓 4大指標算出 & タイムスタンプ同期)
         hrv_cfg = self.cfg.get("hrv", self.cfg.get("rppg", {}).get("hrv", {}))
-        compute_hrv = hrv_cfg.get("enabled", False)
+        compute_hrv = hrv_cfg.get("enabled", True)
         hrv_window_sec = float(hrv_cfg.get("window_sec", 45.0))
         hrv_stride_sec = float(hrv_cfg.get("stride_sec", 1.0))
 
@@ -188,9 +188,9 @@ class RGBPipeline:
         else:
             df_hr, selected_roi, snr = res
 
-        # Step 7.5: 10秒移動窓 相対特徴差分キャリブレーション
+        # Step 7.5: 10秒移動窓 相対特徴差分キャリブレーション (デフォルト False: 生心拍数をそのまま保持)
         rppg_calib_cfg = self.cfg.get("rppg_calibration", {})
-        if rppg_calib_cfg.get("enabled", True):
+        if rppg_calib_cfg.get("enabled", False):
             df_hr = calibrate_rppg_dataframe(
                 df=df_hr,
                 target_cols=rppg_calib_cfg.get("target_cols", ["bpm", "bvp_selected"]),
@@ -345,7 +345,7 @@ class RGBPipeline:
 
         # HRV 設定
         hrv_cfg = self.cfg.get("hrv", self.cfg.get("rppg", {}).get("hrv", {}))
-        compute_hrv = hrv_cfg.get("enabled", False)
+        compute_hrv = hrv_cfg.get("enabled", True)
         hrv_window_sec = float(hrv_cfg.get("window_sec", 45.0))
         hrv_stride_sec = float(hrv_cfg.get("stride_sec", 1.0))
         hrv_save_csv = hrv_cfg.get("save_csv", False)
@@ -372,9 +372,9 @@ class RGBPipeline:
                 df_hr, selected_roi, snr = res
                 df_hrv = None
 
-            # 生体指標 10秒ウィンドウ内完結 差分キャリブレーション適用 (外部ベースライン撤廃)
+            # 生体指標 10秒ウィンドウ内完結 差分キャリブレーション適用 (デフォルト False: 生心拍数をそのまま保持)
             rppg_calib_cfg = self.cfg.get("rppg_calibration", {})
-            if rppg_calib_cfg.get("enabled", True):
+            if rppg_calib_cfg.get("enabled", False):
                 df_hr = calibrate_rppg_dataframe(
                     df=df_hr,
                     target_cols=rppg_calib_cfg.get("target_cols", ["bpm", "bvp_selected"]),

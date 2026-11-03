@@ -23,6 +23,12 @@ try:
 except ImportError:
     from trim_margins import normalize_trim_margins
 
+try:
+    from features.rppg.hrv_extraction import HRV_METRIC_COLS, ensure_hrv_in_dataframe
+except ImportError:
+    HRV_METRIC_COLS = ["rmssd", "sdnn", "sd2_sd1", "mean_pp"]
+    ensure_hrv_in_dataframe = None
+
 
 def create_sliding_windows_for_segment(
     df: pd.DataFrame,
@@ -92,6 +98,10 @@ def create_sliding_windows_for_segment(
             rec["bpm_base_10s"] = float(np.nanmean(sub_df["bpm_base_10s"]))
         if "bpm" in sub_df.columns:
             rec["bpm_mean"] = float(np.nanmean(sub_df["bpm"]))
+        for hrv_col in HRV_METRIC_COLS:
+            if hrv_col in sub_df.columns:
+                val = np.nanmean(sub_df[hrv_col])
+                rec[hrv_col] = float(0.0 if np.isnan(val) else val)
 
         meta_records.append(rec)
 
@@ -129,8 +139,10 @@ def create_sliding_windows_by_label_from_df(
     """
     norm_trim_margins = normalize_trim_margins(trim_margins)
 
-    # 特徴量列の存在チェックと次元数の一致保証
+    # 特徴量列の存在チェックと次元数の一致保証 (HRV列が未算出の場合は45秒窓で自動算出・同期)
     df_work = df.copy()
+    if ensure_hrv_in_dataframe is not None and any(c in HRV_METRIC_COLS for c in feature_cols):
+        df_work = ensure_hrv_in_dataframe(df_work, fs=fs, window_sec=45.0, stride_sec=1.0, time_col=time_col)
     missing_cols = [c for c in feature_cols if c not in df_work.columns]
     if len(missing_cols) == len(feature_cols):
         raise KeyError(f"データフレームに必要な特徴量列が1つも存在しません: {feature_cols}")
@@ -289,6 +301,8 @@ def create_sliding_windows_for_user_from_df(
     time_col: str = "time",
     user_col: str = "username",
     label_col: str = "label",
+    hrv_window_sec: float = 45.0,
+    hrv_stride_sec: float = 1.0,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """
     1被験者の全時系列DataFrameから、ラベル境界で時系列を分割せず、
@@ -307,8 +321,16 @@ def create_sliding_windows_for_user_from_df(
     if total_steps < win_steps:
         return np.empty((0, win_steps, len(feature_cols))), pd.DataFrame()
 
-    # 欠損列の補填
+    # 欠損列の補填 (HRV列が要求され、かつ未算出の場合は指定窓幅で自動算出・タイムスタンプ同期)
     df_work = df.copy()
+    if ensure_hrv_in_dataframe is not None and any(c in HRV_METRIC_COLS for c in feature_cols):
+        df_work = ensure_hrv_in_dataframe(
+            df_work,
+            fs=fs,
+            window_sec=hrv_window_sec,
+            stride_sec=hrv_stride_sec,
+            time_col=time_col,
+        )
     missing_cols = [c for c in feature_cols if c not in df_work.columns]
     for mc in missing_cols:
         df_work[mc] = np.nan
@@ -368,6 +390,10 @@ def create_sliding_windows_for_user_from_df(
             rec["bpm_base_10s"] = float(np.nanmean(sub_df["bpm_base_10s"]))
         if "bpm" in sub_df.columns:
             rec["bpm_mean"] = float(np.nanmean(sub_df["bpm"]))
+        for hrv_col in HRV_METRIC_COLS:
+            if hrv_col in sub_df.columns:
+                val = np.nanmean(sub_df[hrv_col])
+                rec[hrv_col] = float(0.0 if np.isnan(val) else val)
 
         meta_records.append(rec)
 

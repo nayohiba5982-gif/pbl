@@ -14,10 +14,12 @@ from sklearn.model_selection import LeaveOneGroupOut
 
 try:
     from ..metrics import compute_fold_metrics, compute_oof_and_fold_summary
+    from ..threshold_decision.criteria import find_optimal_threshold
     from .models import create_meta_model, normalize_meta_model_name
     from .reporter import generate_visualizations, save_markdown_report
 except (ImportError, ValueError):
     from downstream_task.metrics import compute_fold_metrics, compute_oof_and_fold_summary
+    from downstream_task.threshold_decision.criteria import find_optimal_threshold
     from downstream_task.meta_model.models import create_meta_model, normalize_meta_model_name
     from downstream_task.meta_model.reporter import generate_visualizations, save_markdown_report
 
@@ -45,9 +47,17 @@ def run_single_meta_model_loso(
 
     dt_cfg = cfg.get("downstream_task", {}) if cfg else {}
     loso_cfg = cfg.get("loso_cv", {}) if cfg else {}
+    td_cfg = dt_cfg.get("threshold_decision", {})
     seed = int(loso_cfg.get("random_state", dt_cfg.get("random_state", 42)))
     save_plots = bool(dt_cfg.get("save_plots", True))
     save_models = bool(dt_cfg.get("save_models", True))
+
+    td_enabled = bool(td_cfg.get("enabled", True))
+    td_criterion = str(td_cfg.get("default_criterion", "youden_j"))
+    td_pr_mode = str(td_cfg.get("pr_balance_mode", "min_diff"))
+    td_range = list(td_cfg.get("search_range", [0.05, 0.95]))
+    td_step = float(td_cfg.get("search_step", 0.005))
+    td_fallback = float(td_cfg.get("fallback_threshold", 0.5))
 
     subject_col = "username" if "username" in meta_df.columns else "subject_id"
     label_col = "label" if "label" in meta_df.columns else "label_mean"
@@ -70,6 +80,7 @@ def run_single_meta_model_loso(
     w_all = np.asarray(sample_weight_oof, dtype=np.float64)
 
     oof_meta_preds = np.full(n_samples, np.nan, dtype=np.float32)
+    oof_thresholds = np.full(n_samples, td_fallback, dtype=np.float32)
     fold_records: List[Dict] = []
     fold_models = []
     vis_weights: List[float] = []
@@ -111,6 +122,23 @@ def run_single_meta_model_loso(
         oof_meta_preds[test_idx] = y_pred_te
         fold_models.append(meta_reg)
 
+        # Fold 内の検証データ (Train/Val OOF) で最適カットオフ閾値 th* を決定（Testリーク完全防止）
+        th_fold = td_fallback
+        if td_enabled:
+            y_val_pred = meta_reg.predict(X_tr).astype(np.float32)
+            th_opt_res = find_optimal_threshold(
+                y_val_true=labels[train_idx],
+                y_val_pred=y_val_pred,
+                criterion=td_criterion,
+                pr_balance_mode=td_pr_mode,
+                search_range=td_range,
+                search_step=td_step,
+                fallback_threshold=td_fallback,
+            )
+            th_fold = float(th_opt_res["best_threshold"])
+
+        oof_thresholds[test_idx] = th_fold
+
         coefs = meta_reg.get_coefficients()
         w_v = float(coefs.get(feature_names[0], 0.0))
         w_b = float(coefs.get(feature_names[1], 0.0))
@@ -124,7 +152,9 @@ def run_single_meta_model_loso(
             test_user=test_user,
             y_true=labels[test_idx],
             y_pred=y_pred_te,
+            threshold=th_fold,
         )
+        f_metrics["optimal_threshold"] = round(th_fold, 4)
         f_metrics["visual_weight"] = round(w_v, 4)
         f_metrics["vital_weight"] = round(w_b, 4)
         f_metrics["intercept"] = round(b_0, 4)
@@ -135,7 +165,7 @@ def run_single_meta_model_loso(
         r_str = f"{f_metrics['pearson_r']:.3f}" if pd.notna(f_metrics["pearson_r"]) else "N/A"
         log.info(
             f"  Fold [{fold:2d}/{n_users:2d}] User: {test_user:<13} | "
-            f"MAE: {f_metrics['mae']:.4f} | r: {r_str} | AUC: {auc_str} | PR-AUC: {pr_str} | "
+            f"th*: {th_fold:.3f} | MAE: {f_metrics['mae']:.4f} | r: {r_str} | AUC: {auc_str} | PR-AUC: {pr_str} | "
             f"w_vis={w_v:.3f}, w_vital={w_b:.3f}"
         )
 
@@ -145,6 +175,7 @@ def run_single_meta_model_loso(
         y_true_all=labels,
         y_pred_all=oof_meta_preds,
         fold_records=fold_records,
+        threshold=oof_thresholds if td_enabled else td_fallback,
     )
     fold_df = eval_res["fold_df"]
     stats_dict = eval_res["stats_dict"]
@@ -170,7 +201,8 @@ def run_single_meta_model_loso(
     oof_df[f"y_pred_visual_{selected_visual_model}"] = y_pred_visual_oof
     oof_df[f"y_pred_vital_{selected_vital_model}"] = y_pred_vital_oof
     oof_df["y_pred_oof"] = oof_meta_preds
-    oof_df["y_pred_binary"] = (oof_meta_preds >= 0.5).astype(int)
+    oof_df["optimal_threshold"] = oof_thresholds
+    oof_df["y_pred_binary"] = (oof_meta_preds >= (oof_thresholds if td_enabled else td_fallback)).astype(int)
     oof_csv = meta_output_dir / f"loso_{tag}_oof_predictions.csv"
     oof_df.to_csv(oof_csv, index=False)
 

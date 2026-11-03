@@ -30,21 +30,22 @@ except ImportError:
 try:
     from .base_model import BaseModelPipeline, DEFAULT_BASE_MODELS
     from .meta_model import MetaModelPipeline, DEFAULT_META_MODELS
+    from .threshold_decision import ThresholdDecisionPipeline
 except (ImportError, ValueError):
     from downstream_task.base_model import BaseModelPipeline, DEFAULT_BASE_MODELS
     from downstream_task.meta_model import MetaModelPipeline, DEFAULT_META_MODELS
-
-
-DEFAULT_DOWNSTREAM_MODELS = DEFAULT_BASE_MODELS
+    from downstream_task.threshold_decision import ThresholdDecisionPipeline
 
 
 class DownstreamTaskPipeline:
     """
-    下流タスク LOSO-CV 2段階学習・推論パイプライン:
-      1. BaseModelPipeline : visual, vital 各モダリティで 5モデル (RF, XGB, LGBM, CatBoost, AdaBoost) を
-                             Early Stopping 付きで学習・評価 (report.md)・モデル保存
-      2. MetaModelPipeline : config.yaml で指定された visual, vital モデルを用いて
-                             4種のメタモデル (LogisticRegression, Ridge, Lasso, ElasticNet) を学習・評価・最終推論
+    下流タスク LOSO-CV 3段階学習・推論パイプライン:
+      1. BaseModelPipeline        : visual, vital 各モダリティで 5モデル (RF, XGB, LGBM, CatBoost, AdaBoost) を
+                                    Early Stopping 付きで学習・評価 (report.md)・モデル保存
+      2. MetaModelPipeline        : config.yaml で指定された visual, vital モデルを用いて
+                                    4種のメタモデル (LogisticRegression, Ridge, Lasso, ElasticNet) を学習・評価・最終推論
+      3. ThresholdDecisionPipeline: 検証データ (Val) を用いて 3大基準 (Youden's J, F1-Macro, PR-Balance) で
+                                    リークフリーに最適閾値 th* を決定・比較評価
     """
 
     def __init__(self, cfg: Optional[dict] = None):
@@ -54,6 +55,7 @@ class DownstreamTaskPipeline:
         self.downstream_cfg = cfg.get("downstream_task", {})
         self.base_pipeline = BaseModelPipeline(cfg)
         self.meta_pipeline = MetaModelPipeline(cfg)
+        self.threshold_pipeline = ThresholdDecisionPipeline(cfg)
 
     def run_base_models(
         self,
@@ -85,6 +87,21 @@ class DownstreamTaskPipeline:
             vital_model=vital_model,
         )
 
+    def run_threshold_decision(
+        self,
+        criterion: Optional[str] = None,
+        target_scope: Optional[str] = None,
+        models: Optional[Sequence[str]] = None,
+        modalities: Optional[Sequence[str]] = None,
+    ):
+        """Step 7-3: 検証データに基づく LOSO-CV リークフリー閾値決定・比較評価"""
+        return self.threshold_pipeline.run(
+            criterion=criterion,
+            target_scope=target_scope,
+            models=models,
+            modalities=modalities,
+        )
+
     def run_downstream_task(
         self,
         stage: str = "all",
@@ -97,10 +114,11 @@ class DownstreamTaskPipeline:
         covariance_type: Optional[str] = None,
         apply_subject_norm: Optional[bool] = None,
         models: Optional[Sequence[str]] = None,
+        criterion: Optional[str] = None,
         **kwargs,
     ) -> Dict:
         """
-        指定ステージ ("base_model", "meta_model", または "all") に応じて実行します。
+        指定ステージ ("base_model", "meta_model", "threshold_decision", または "all") に応じて実行します。
         """
         stage_norm = (stage or self.downstream_cfg.get("default_stage", "all")).lower().strip()
         results = {}
@@ -123,13 +141,20 @@ class DownstreamTaskPipeline:
             )
             results["meta_model"] = df_meta
 
+        td_enabled = bool(self.downstream_cfg.get("threshold_decision", {}).get("enabled", True))
+        if stage_norm in ("threshold", "threshold_decision", "th") or (
+            stage_norm in ("all", "downstream_task", "loso_cv") and td_enabled
+        ):
+            df_td = self.run_threshold_decision(
+                criterion=criterion,
+                models=meta_models or base_models or models,
+                modalities=modalities,
+            )
+            results["threshold_decision"] = df_td
+
         return results
 
     run_all = run_downstream_task
-    run_loso_regression = run_downstream_task
-
-
-LOSORegressionPipeline = DownstreamTaskPipeline
 
 
 def main():
@@ -141,8 +166,14 @@ def main():
         "--stage",
         type=str,
         default="all",
-        choices=["all", "base_model", "base", "meta_model", "meta"],
-        help="実行ステージ: base_model (Visual/Vitalモデル作成) / meta_model (メタモデル作成) / all (両方)"
+        choices=["all", "base_model", "base", "meta_model", "meta", "threshold_decision", "threshold"],
+        help="実行ステージ: base_model / meta_model / threshold_decision / all"
+    )
+    parser.add_argument(
+        "--criterion",
+        type=str,
+        default=None,
+        help="閾値決定基準 (youden_j / f1_macro / pr_balance)"
     )
     parser.add_argument(
         "--window-size", "--window-sizes", "-w",
@@ -241,6 +272,7 @@ def main():
             weights=args.weights,
             covariance_type=args.covariance_type,
             apply_subject_norm=not args.no_subj_norm,
+            criterion=args.criterion,
         )
 
     log.info(f"🎉 全ウィンドウ ({target_windows}) の下流タスクが完了しました ({time.time() - total_start:.2f}s)")

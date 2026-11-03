@@ -40,9 +40,9 @@ except ImportError:
   from moving_average import apply_bpm_moving_average
 
 try:
-  from features.rppg.hrv_extraction import process_hrv_pipeline
+  from features.rppg.hrv_extraction import align_hrv_to_timeseries, process_hrv_pipeline
 except ImportError:
-  from hrv_extraction import process_hrv_pipeline
+  from hrv_extraction import align_hrv_to_timeseries, process_hrv_pipeline
 
 
 def process_hr_extraction(
@@ -52,8 +52,8 @@ def process_hr_extraction(
     ma_window_sec: float = 5.0,
     ma_enabled: bool = True,
     ma_center: bool = False,
-    compute_hrv: bool = False,
-    hrv_window_sec: float = 60.0,
+    compute_hrv: bool = True,
+    hrv_window_sec: float = 45.0,
     hrv_stride_sec: float = 1.0,
 ) -> Union[
     Tuple[pd.DataFrame, str, float],
@@ -141,6 +141,7 @@ def process_hr_extraction(
         print(f"  ⚠️ HRV特徴量算出失敗: {e}")
         df_hrv_table = None
 
+    df_out = align_hrv_to_timeseries(df_out, df_hrv_table, fs=fs)
     return df_out, selected_region, selected_snr, df_hrv_table
 
   return df_out, selected_region, selected_snr

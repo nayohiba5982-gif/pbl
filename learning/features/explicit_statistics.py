@@ -60,45 +60,37 @@ def compute_explicit_statistics(
 
     features_dict: dict[str, np.ndarray] = {}
 
-    # 心拍ベースライン水準（直流成分）の取得ロジック（20次元統計量の情報消失バグ回避）
-    bpm_baseline_arr = None
+    # 心拍生値・ベースライン水準（直流成分）の取得ロジック（フォールバック用）
+    bpm_fallback_mean = None
     if bpm_base is not None:
-        bpm_baseline_arr = np.asarray(bpm_base, dtype=np.float32)
-        if bpm_baseline_arr.ndim == 2:
-            bpm_baseline_arr = np.nanmean(bpm_baseline_arr, axis=1)
+        bpm_fallback_mean = np.asarray(bpm_base, dtype=np.float32)
+        if bpm_fallback_mean.ndim == 2:
+            bpm_fallback_mean = np.nanmean(bpm_fallback_mean, axis=1)
     elif meta_df is not None:
-        for candidate_col in ["bpm_base_10s", "bpm_base", "bpm_raw_mean", "bpm_mean"]:
+        for candidate_col in ["bpm_mean", "bpm_raw_mean", "bpm_base_10s", "bpm_base"]:
             if candidate_col in meta_df.columns:
-                bpm_baseline_arr = meta_df[candidate_col].values.astype(np.float32)
+                bpm_fallback_mean = meta_df[candidate_col].values.astype(np.float32)
                 break
-    elif "bpm_base_10s" in col_to_idx:
-        bpm_baseline_arr = np.nanmean(X[:, :, col_to_idx["bpm_base_10s"]], axis=1)
-    elif "bpm" in col_to_idx:
-        bpm_baseline_arr = np.nanmean(X[:, :, col_to_idx["bpm"]], axis=1)
-
-    if bpm_baseline_arr is None:
-        # メタデータ等にベースラインがない場合のフォールバック
-        bpm_baseline_arr = np.zeros(n_samples, dtype=np.float32)
-    elif baseline_mode == "relative_to_first" and len(bpm_baseline_arr) > 0:
-        # 先頭基準窓との差分（タスク中の心拍ドリフト・疲労応答）
-        first_val = bpm_baseline_arr[0]
-        bpm_baseline_arr = bpm_baseline_arr - first_val
 
     # 1. 各特徴量チャネルの平均値 (Mean) [8次元]
     for col in feature_cols:
-        if col in ("bpm_diff", "bpm"):
-            # 心拍チャネル: ゼロ平均系列から mean を取る情報消失バグを回避し、
-            # 局所ベースライン水準（直流成分）を割り当てる
-            features_dict["bpm_base_mean"] = bpm_baseline_arr
+        idx = col_to_idx[col]
+        if col in ("bpm", "bpm_diff"):
+            bpm_vals = X[:, :, idx]
+            if col == "bpm_diff" or (np.nanmean(np.abs(bpm_vals)) < 15.0 and bpm_fallback_mean is not None):
+                features_dict["bpm_mean"] = bpm_fallback_mean if bpm_fallback_mean is not None else np.nanmean(bpm_vals, axis=1)
+            else:
+                features_dict["bpm_mean"] = np.nanmean(bpm_vals, axis=1)
         else:
-            idx = col_to_idx[col]
             features_dict[f"{col}_mean"] = np.nanmean(X[:, :, idx], axis=1)
 
     # 2. 各特徴量チャネルの標準偏差 (Std) [8次元]
-    # bpm_diff からは「分散・標準偏差」などの変動成分（AC成分）のみを算出
     for col in feature_cols:
         idx = col_to_idx[col]
-        features_dict[f"{col}_std"] = np.nanstd(X[:, :, idx], axis=1)
+        if col in ("bpm", "bpm_diff"):
+            features_dict["bpm_std"] = np.nanstd(X[:, :, idx], axis=1)
+        else:
+            features_dict[f"{col}_std"] = np.nanstd(X[:, :, idx], axis=1)
 
     # 3. 移動量の分散 (Movement Variance)
     # (A) 頭部姿勢の動きの分散

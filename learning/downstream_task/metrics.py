@@ -50,7 +50,7 @@ def compute_fold_metrics(
     y_pred_arr = np.asarray(y_pred, dtype=float)
     n_test = len(y_true_arr)
 
-    y_true_b = (y_true_arr >= threshold).astype(int)
+    y_true_b = (y_true_arr >= 0.5).astype(int)
     y_pred_b = (y_pred_arr >= threshold).astype(int)
     n_unique_y = len(np.unique(y_true_arr))
     n_classes = len(np.unique(y_true_b))
@@ -144,7 +144,7 @@ def compute_oof_and_fold_summary(
     else:
         r_total, p_val, rho_total = 0.0, 1.0, 0.0
 
-    y_true_bin = (y_true_arr >= threshold).astype(int)
+    y_true_bin = (y_true_arr >= 0.5).astype(int)
     y_pred_bin = (y_pred_arr >= threshold).astype(int)
     acc_total = float(accuracy_score(y_true_bin, y_pred_bin))
     balanced_acc_total = float(balanced_accuracy_score(y_true_bin, y_pred_bin))

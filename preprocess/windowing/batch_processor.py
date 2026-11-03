@@ -25,14 +25,18 @@ except ImportError:
 try:
     from .trim_margins import normalize_trim_margins
     from .window_generator import (
+        HRV_METRIC_COLS,
         create_sliding_windows_by_label_from_df,
         create_sliding_windows_for_user_from_df,
+        ensure_hrv_in_dataframe,
     )
 except ImportError:
     from trim_margins import normalize_trim_margins
     from window_generator import (
+        HRV_METRIC_COLS,
         create_sliding_windows_by_label_from_df,
         create_sliding_windows_for_user_from_df,
+        ensure_hrv_in_dataframe,
     )
 
 
@@ -49,6 +53,8 @@ def process_all_files_for_windowing(
     user_col: str = "username",
     label_col: str = "label",
     trim_margins: dict | None = None,
+    hrv_window_sec: float = 45.0,
+    hrv_stride_sec: float = 1.0,
 ):
     """
     指定ディレクトリ配下の全CSVを読み込み、各特徴量グループ別（視覚的 visual, 生体的 vital, 統合 combined）に
@@ -56,13 +62,13 @@ def process_all_files_for_windowing(
 
     【保存構造】
       - 従来互換パス:
-          output_base_dir/{win_sec}/X_windows.npy (combined: 統合8次元)
+          output_base_dir/{win_sec}/X_windows.npy (combined: 統合12次元)
           output_base_dir/{win_sec}/X_visual.npy  (visual: 視覚6次元)
-          output_base_dir/{win_sec}/X_vital.npy   (vital: 生体2次元)
+          output_base_dir/{win_sec}/X_vital.npy   (vital: 生体6次元)
           output_base_dir/{win_sec}/metadata.csv
       - モダリティ別サブディレクトリ (Colab / 学習スクリプトでの直接指定用):
           output_base_dir/{win_sec}/{modality}/X_windows.npy, metadata.csv
-          output_base_dir/{modality}/{win_sec}/X_windows.npy, metadata.csv
+          output_base_dir/{modality}/{win_str}/X_windows.npy, metadata.csv
       - 被験者別:
           output_base_dir/{win_sec}/by_user/{username}_X.npy (combined)
           output_base_dir/{win_sec}/by_user/{username}_X_visual.npy
@@ -80,7 +86,10 @@ def process_all_files_for_windowing(
     # 特徴量グループのデフォルト設定（指定がない場合の自動フォールバック）
     if not feature_groups:
         visual_cols = [c for c in feature_cols if any(k in c for k in ["ear", "head", "gaze"])]
-        vital_cols = [c for c in feature_cols if any(k in c for k in ["bvp", "bpm"])]
+        vital_cols = [
+            c for c in feature_cols
+            if any(k in c for k in ["bvp", "bpm", "rmssd", "sdnn", "sd2_sd1", "mean_pp"])
+        ]
         feature_groups = {
             "combined": feature_cols,
             "visual": visual_cols if visual_cols else feature_cols,
@@ -95,6 +104,21 @@ def process_all_files_for_windowing(
 
     log.info(f"計 {len(csv_files)} 件の被験者ファイルのスライディングウィンドウ作成を開始します。")
     log.info(f"  - 特徴量グループ構成: {', '.join([f'{k}({len(v)}ch)' for k, v in feature_groups.items()])}")
+
+    # 被験者CSVの読み込みとHRV特徴量（45秒窓）の事前同期キャッシュ（5s/10s/15sでの重複計算を防止）
+    cached_user_dfs: dict[Path, pd.DataFrame] = {}
+    need_hrv = ensure_hrv_in_dataframe is not None and any(c in HRV_METRIC_COLS for c in all_needed_cols)
+    for file_path in csv_files:
+        df_loaded = pd.read_csv(file_path)
+        if need_hrv:
+            df_loaded = ensure_hrv_in_dataframe(
+                df_loaded,
+                fs=fs,
+                window_sec=hrv_window_sec,
+                stride_sec=hrv_stride_sec,
+                time_col=time_col,
+            )
+        cached_user_dfs[file_path] = df_loaded
 
     for win_sec in window_secs:
         win_str = f"{int(win_sec)}s" if win_sec.is_integer() else f"{win_sec}s"
@@ -117,7 +141,7 @@ def process_all_files_for_windowing(
         log.info("=" * 60)
 
         for file_path in csv_files:
-            df = pd.read_csv(file_path)
+            df = cached_user_dfs[file_path]
             user_id = str(df[user_col].iloc[0]) if user_col in df.columns else file_path.stem.replace("features_", "")
 
             # 基準となる全特徴量時系列から被験者1本の連続ウィンドウを作成
@@ -131,6 +155,8 @@ def process_all_files_for_windowing(
                 time_col=time_col,
                 user_col=user_col,
                 label_col=label_col,
+                hrv_window_sec=hrv_window_sec,
+                hrv_stride_sec=hrv_stride_sec,
             )
 
             if len(X_full) == 0:
@@ -231,6 +257,10 @@ def run_windowing(cfg: dict = None):
     feature_groups = win_cfg.get("feature_groups", None)
     trim_margins = win_cfg.get("trim_margins", None)
 
+    hrv_cfg = cfg.get("hrv", cfg.get("rppg", {}).get("hrv", {}))
+    hrv_window_sec = float(hrv_cfg.get("window_sec", 45.0))
+    hrv_stride_sec = float(hrv_cfg.get("stride_sec", 1.0))
+
     process_all_files_for_windowing(
         input_dir=input_dir,
         output_base_dir=output_dir,
@@ -241,4 +271,6 @@ def run_windowing(cfg: dict = None):
         fs=target_fs,
         max_nan_ratio=max_nan_ratio,
         trim_margins=trim_margins,
+        hrv_window_sec=hrv_window_sec,
+        hrv_stride_sec=hrv_stride_sec,
     )

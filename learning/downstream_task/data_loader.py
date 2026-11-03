@@ -3,7 +3,7 @@
 (learning/downstream_task/data_loader.py)
 
 PLS 特徴量 (6d: vis_pls_1..3, bio_pls_1..3) または TS2Vec 埋め込み (32d + 32d)、
-メタデータ、明示的物理統計量 (20d) の読み込み・被験者別Zスコア標準化・
+メタデータ、明示的物理統計量 (24d: 既存20d + HRV 4d) の読み込み・被験者別Zスコア標準化・
 モダリティ別 (Visual / Vital) 特徴量分離を行います。
 """
 
@@ -21,6 +21,8 @@ VITAL_KEYWORDS = (
     "ibi",
     "rmssd",
     "sdnn",
+    "sd2_sd1",
+    "mean_pp",
     "pnn",
     "lf",
     "hf",
@@ -74,7 +76,7 @@ def split_modality_feature_indices(
                 else:
                     vis_indices.append(offset + i)
         else:
-            vital_local_positions = {6, 7, 14, 15}
+            vital_local_positions = {6, 7, 14, 15, 20, 21, 22, 23}
             for i in range(n_explicit):
                 if i in vital_local_positions:
                     vital_indices.append(offset + i)
@@ -141,8 +143,8 @@ def load_embeddings_and_meta(
             )
             return p_df[vis_cols].values.astype(np.float32), p_df[bio_cols].values.astype(np.float32), p_df
 
-    # パターン 2: Split ごとの TS2Vec ファイルまたは PLS ファイルを探索 (data_dir または input_data_dir)
-    search_dirs = [data_dir, input_data_dir]
+    # パターン 2: Split ごとの TS2Vec ファイルまたは PLS ファイルを探索 (最新の input_data_dir を優先)
+    search_dirs = [input_data_dir, data_dir]
     src_dir = next(
         (d for d in search_dirs if (d / "meta_train.csv").exists() and (d / "emb_train_visual.npy").exists()),
         None
@@ -262,13 +264,13 @@ def load_explicit_features(
     window_size: str,
     log,
 ) -> Tuple[Optional[np.ndarray], List[str]]:
-    """明示的物理特徴量 (20次元: EAR, 頭部姿勢, 視線, BPM統計量) をロードまたは算出"""
-    # 1. すでに meta_df に明示的特徴量が含まれている場合
+    """明示的物理特徴量 (24次元: EAR, 頭部姿勢, 視線, BPM統計量 20d + HRV主要4指標 4d) をロードまたは算出"""
+    # 1. すでに meta_df に明示的特徴量 (24次元以上) が含まれている場合
     exclude_cols = {
         "username", "subject_id", "label", "label_mean", "target_label",
         "cluster", "y_soft", "prob_label", "split", "index", "time",
         "window_sec", "start_idx", "end_idx", "start_time", "end_time",
-        "bpm_base_10s", "bpm_mean",
+        "bpm_base_10s",
     }
     stat_cols = [
         c for c in meta_df.columns
@@ -277,7 +279,7 @@ def load_explicit_features(
         and not c.startswith("bio_pls_")
         and not c.startswith("cluster_prob_")
     ]
-    if len(stat_cols) >= 20:
+    if len(stat_cols) >= 24:
         log.info(f"✓ メタデータから直接 {len(stat_cols)} 次元の明示的物理特徴量を検出しました: {stat_cols[:4]} ...")
         return meta_df[stat_cols].values.astype(np.float32), stat_cols
 
@@ -297,7 +299,7 @@ def load_explicit_features(
                 and not c.startswith("bio_pls_")
                 and not c.startswith("cluster_prob_")
             ]
-            if len(s_cols) >= 20:
+            if len(s_cols) >= 24:
                 log.info(f"✓ meta_*_soft_labeled.csv から {len(s_cols)} 次元の明示的物理特徴量を検出しました")
                 return combined_soft[s_cols].values.astype(np.float32), s_cols
 

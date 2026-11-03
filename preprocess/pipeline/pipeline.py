@@ -1,4 +1,4 @@
-﻿import os
+import os
 import shutil
 import json
 import glob
@@ -212,7 +212,8 @@ class DataPipeline:
                     if c in [
                         'bvp_selected', 'selected_roi', 'snr_db', 'bpm', 'bpm_raw', 'ppg_peaks', 
                         'bvp_clean', 'bvp_clean_both', 'bpm_diff', 'bvp_selected_diff', 
-                        'bpm_base_10s', 'bvp_selected_base_10s'
+                        'bpm_base_10s', 'bvp_selected_base_10s',
+                        'rmssd', 'sdnn', 'sd2_sd1', 'mean_pp',
                     ]
                 ]
 
@@ -319,7 +320,8 @@ class DataPipeline:
             if c in [
                 'bvp_selected', 'selected_roi', 'snr_db', 'bpm', 'bpm_raw', 'ppg_peaks', 
                 'bvp_clean', 'bvp_clean_both', 'bpm_diff', 'bvp_selected_diff', 
-                'bpm_base_10s', 'bvp_selected_base_10s'
+                'bpm_base_10s', 'bvp_selected_base_10s',
+                'rmssd', 'sdnn', 'sd2_sd1', 'mean_pp',
             ]
         ]
         df_out = df_lm.copy()
