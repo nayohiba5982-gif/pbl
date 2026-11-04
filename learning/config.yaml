@@ -77,7 +77,7 @@ clustering:
 
 # GMM クラスタの特徴量集計・分析設定 (Cluster Feature Analysis)
 cluster_analysis:
-  # 特徴量列名リスト (X_windows.npy のチャネル順)
+  # 特徴量列名リスト (X_windows.npy のチャネル順: 7ch)
   feature_cols:
     - "ear_ratio"
     - "head_pitch_diff"
@@ -85,12 +85,11 @@ cluster_analysis:
     - "head_roll_diff"
     - "gaze_v_deg_diff"
     - "gaze_h_deg_diff"
-    - "bvp_selected"
-    - "bpm"
+    - "bpm_diff"
 
   # 生体指標のカラム設定
   metrics:
-    bpm_col: "bpm"
+    bpm_col: "bpm_diff"
     ear_col: "ear_ratio"
     head_pose_cols:
       - "head_pitch_diff"
@@ -233,8 +232,8 @@ downstream_task:
     # ★ Visual / Vital それぞれで採用するベースモデルをここで指定 ★
     # 指定可能: "random_forest", "xgboost", "lightgbm", "catboost", "adaboost"
     selected_base_models:
-      visual: "lightgbm"
-      vital: "lightgbm"
+      visual: "random_forest"
+      vital: "random_forest"
 
     # 作成・評価するメタモデル一覧
     models:

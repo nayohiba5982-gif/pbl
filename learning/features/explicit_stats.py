@@ -56,6 +56,10 @@ def compute_explicit_statistics(
         gaze_cols = DEFAULT_GAZE_COLS
 
     n_samples, time_steps, n_channels = X.shape
+    if n_channels == 7 and "bvp_selected" in feature_cols:
+        # vital が HR のみ (bvp_selected 除外) の 7 チャネル時系列に対応
+        feature_cols = [c for c in feature_cols if c != "bvp_selected"]
+
     col_to_idx = {col: i for i, col in enumerate(feature_cols)}
 
     features_dict: dict[str, np.ndarray] = {}

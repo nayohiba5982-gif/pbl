@@ -141,8 +141,8 @@ def load_embeddings_and_meta(
             )
             return p_df[vis_cols].values.astype(np.float32), p_df[bio_cols].values.astype(np.float32), p_df
 
-    # パターン 2: Split ごとの TS2Vec ファイルまたは PLS ファイルを探索 (data_dir または input_data_dir)
-    search_dirs = [data_dir, input_data_dir]
+    # パターン 2: Split ごとの TS2Vec ファイルまたは PLS ファイルを探索 (最新の input_data_dir を優先)
+    search_dirs = [input_data_dir, data_dir]
     src_dir = next(
         (d for d in search_dirs if (d / "meta_train.csv").exists() and (d / "emb_train_visual.npy").exists()),
         None

@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+import shutil
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
@@ -60,32 +61,54 @@ class ClusteringDataLoader:
         pls_train_fused_std = self.data_dir / "pls_train_fused_standardized.npy"
         pls_train_fused_raw = self.data_dir / "pls_train_fused.npy"
         pls_train_fused = pls_train_fused_std if pls_train_fused_std.exists() else pls_train_fused_raw
-        meta_train_path = (
-            (self.data_dir / "meta_train.csv")
-            if (self.data_dir / "meta_train.csv").exists()
-            else (self.input_data_dir / "meta_train.csv")
-        )
-        if pls_train_fused.exists() and meta_train_path.exists():
+
+        def _get_matched_meta(split_k: str, emb_len: int) -> pd.DataFrame:
+            """emb 行数と一致する meta_{split_k}.csv を input_data_dir または data_dir から探索・同期"""
+            inp_meta = self.input_data_dir / f"meta_{split_k}.csv"
+            dat_meta = self.data_dir / f"meta_{split_k}.csv"
+            if inp_meta.exists():
+                df_inp = pd.read_csv(inp_meta)
+                if len(df_inp) == emb_len:
+                    if not dat_meta.exists() or len(pd.read_csv(dat_meta)) != emb_len:
+                        shutil.copy2(inp_meta, dat_meta)
+                    return df_inp
+            if dat_meta.exists():
+                df_dat = pd.read_csv(dat_meta)
+                if len(df_dat) == emb_len:
+                    return df_dat
+                if inp_meta.exists():
+                    log.warning(
+                        f"⚠️ {dat_meta.name} の行数 ({len(df_dat)}) が emb 行数 ({emb_len}) と不一致です。"
+                        f"最新の {inp_meta.name} (行数: {len(df_inp)}) を同期します。"
+                    )
+                    shutil.copy2(inp_meta, dat_meta)
+                    return df_inp
+                return df_dat
+            if inp_meta.exists():
+                shutil.copy2(inp_meta, dat_meta)
+                return pd.read_csv(inp_meta)
+            raise FileNotFoundError(f"meta_{split_k}.csv が見つかりません: {dat_meta}, {inp_meta}")
+
+        if pls_train_fused.exists() and (
+            (self.data_dir / "meta_train.csv").exists() or (self.input_data_dir / "meta_train.csv").exists()
+        ):
             log.info(f"✓ previous_task 生成の Split 別 PLS 特徴量を検出・読み込みます: {pls_train_fused.name}")
+            arr_train = np.load(pls_train_fused)
             data = {
                 "train": {
-                    "emb": np.load(pls_train_fused),
-                    "meta": pd.read_csv(meta_train_path),
+                    "emb": arr_train,
+                    "meta": _get_matched_meta("train", len(arr_train)),
                 }
             }
             for split_k in ["val", "test"]:
                 p_std = self.data_dir / f"pls_{split_k}_fused_standardized.npy"
                 p_raw = self.data_dir / f"pls_{split_k}_fused.npy"
                 p_target = p_std if p_std.exists() else p_raw
-                m_target = (
-                    (self.data_dir / f"meta_{split_k}.csv")
-                    if (self.data_dir / f"meta_{split_k}.csv").exists()
-                    else (self.input_data_dir / f"meta_{split_k}.csv")
-                )
-                if p_target.exists() and m_target.exists():
+                if p_target.exists():
+                    arr_k = np.load(p_target)
                     data[split_k] = {
-                        "emb": np.load(p_target),
-                        "meta": pd.read_csv(m_target),
+                        "emb": arr_k,
+                        "meta": _get_matched_meta(split_k, len(arr_k)),
                     }
             return data
 

@@ -58,7 +58,13 @@ def apply_and_save_clusters(
 
     for split_name, s_data in split_data.items():
         emb = s_data["emb"]
-        df_meta = s_data["meta"].copy()
+        df_meta = s_data["meta"].copy().reset_index(drop=True)
+
+        if len(df_meta) != len(emb):
+            raise ValueError(
+                f"[{split_name}] メタデータ行数 ({len(df_meta)}) と特徴量行数 ({len(emb)}) が一致しません。"
+                f"最新の meta_{split_name}.csv が正しく同期されているか確認してください。"
+            )
 
         # PLS 特徴量列 (vis_pls_*, bio_pls_*) がメタデータに未付与の場合は付与
         has_pls_cols = any(c.startswith("vis_pls_") for c in df_meta.columns) and any(

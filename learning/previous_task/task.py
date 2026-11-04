@@ -104,7 +104,8 @@ class PreviousTask:
     def _resolve_split_files(self, ws: str, split: str = "train") -> tuple[Path | None, Path | None, Path | None]:
         """指定ウィンドウ・Split の (vis_emb_path, bio_emb_path, meta_path) を探索します"""
         d_dir, i_dir = self._get_dirs_for_window(ws)
-        search_dirs = [d_dir, i_dir]
+        # 最新の入力元 (Colab 成果物が配置される i_dir) を優先して探索
+        search_dirs = [i_dir, d_dir]
 
         vis_cands = []
         bio_cands = []
@@ -128,8 +129,8 @@ class PreviousTask:
         bio_path = next((p for p in bio_cands if p.exists()), None)
         meta_path = next((p for p in meta_cands if p.exists()), None)
 
-        # input_dir 側にのみメタデータがある場合は data_dir にもコピーして後続ステージで参照可能にする
-        if meta_path is not None and meta_path.parent != d_dir and not (d_dir / f"meta_{split}.csv").exists():
+        # input_dir 側の最新メタデータを data_dir に同期コピーして後続ステージで参照可能にする
+        if meta_path is not None and meta_path.parent != d_dir:
             shutil.copy2(meta_path, d_dir / f"meta_{split}.csv")
             meta_path = d_dir / f"meta_{split}.csv"
 

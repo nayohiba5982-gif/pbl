@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Firebase & データ収集設定
 # ==============================================================================
 firebase:
@@ -180,17 +180,15 @@ windowing:
       - "head_roll_diff"
       - "gaze_v_deg_diff"
       - "gaze_h_deg_diff"
-    vital:                      # 生体的特徴量 (rPPG脈波・心拍変化: 計2次元)
-      - "bvp_selected"
+    vital:                      # 生体的特徴量 (HRのみ: 計1次元)
       - "bpm_diff"
-    combined:                   # 統合特徴量 (全8次元)
+    combined:                   # 統合特徴量 (計7次元)
       - "ear_ratio"
       - "head_pitch_diff"
       - "head_yaw_diff"
       - "head_roll_diff"
       - "gaze_v_deg_diff"
       - "gaze_h_deg_diff"
-      - "bvp_selected"
       - "bpm_diff"
 
   # TS2Vec / 集約に入力する特徴量カラム一覧 (ゼロ平均化系列)
@@ -201,7 +199,6 @@ windowing:
     - "head_roll_diff"
     - "gaze_v_deg_diff"
     - "gaze_h_deg_diff"
-    - "bvp_selected"
     - "bpm_diff"
     
   output_dir: "data/windowed"
